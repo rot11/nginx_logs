@@ -3,16 +3,11 @@
 #
 # ex1.py
 #
-#192.168.5.87 - - [14/Jul/2014:16:04:21 +0200] "GET /ui/extauth_router/categories/Altair/?AltairID=135156877&embed=1&showifone=1&cd3Token=33604%0araw%0a%8f%ba7s.%f2%b2%ebX%b6%84I%b8_%9c%5dAUIC%13%01%a1k%ee%e0T%d6%0cIh%90%0aUser%3a+33604 HTTP/1.1" 302 5 "-" "Mozilla/5.0 (compatible; MSIE 10.0; Windows NT 6.1; Trident/6.0)"
 
-#172.17.101.84 - - [14/Jul/2014:16:05:15 +0200] "GET / HTTP/1.1" 302 5 "-" "Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/35.0.1916.153 Safari/537.36"
-from parse import *
 import datetime
 import time
 import sys
-import pprint
 import re
-
 
 
 class LogAnalyzer():
@@ -21,12 +16,11 @@ class LogAnalyzer():
             self.IP[IP][typ] = 1
         else:
             self.IP[IP][typ] += 1
-        self.IP[IP]['all'] +=1
-
+        self.IP[IP]['all'] += 1
 
     def __init__(self, startTime=0, period=3600):
         self.knownRequestTypes = ['api', 'ui', 'images']
-        #amount of requests
+        # amount of requests
         self.n = 0
 
         self.period = period
@@ -37,22 +31,18 @@ class LogAnalyzer():
         else:
             self.stopTime = 0
 
-        self.nTypes = {self.knownRequestTypes[0]: 0, self.knownRequestTypes[1]: 0, self.knownRequestTypes[2]: 0, 'other': 0}
+        self.nTypes = {self.knownRequestTypes[0]: 0, self.knownRequestTypes[1]: 0, self.knownRequestTypes[2]: 0,
+                       'other': 0}
 
-        #amount of each status code
+        # amount of each status code
         self.nCode = {}
 
         self.IP = {}
 
-        #pattern = '{} - - [{}:{}:{}:{} {}] "{} {} HTTP/1.{}" {} {} "{}" "{}"'
-        #172.17.101.84 - - [14/Jul/2014:16:05:15 +0200] "GET / HTTP/1.1" 302 5 "-" "Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/35.0.1916.153 Safari/537.36"
-
-        #self.pattern = '{} - - [{}:{:d}:{}:{} {}] "{} {} HTTP/1.{}" {} {}'
-        self.pattern = '{} - - [{} {}] "{} {} HTTP/1.{}" {} {}'
-        #ip - - [dataCzas] "TYP ZASÓB HTTP/1.{}" KOD
+        self.pattern = r'([\d]{1,3}.[\d]{1,3}.[\d]{1,3}.[\d]{1,3}) - - \[([\d]{2}/[A-Z][a-z]{2}/[0-9]{4}:[\d]{2}:[\d]{2}:[\d]{2}) \+0200] "[A-Z]{0,4} /([a-z\.?=]*).* HTTP/1.[01]" ([0-9]{3})'
+        self.re = re.compile(self.pattern)
 
         self.dateTimePattern = '%d/%b/%Y:%H:%M:%S'
-        self.typePattern = '/{}/'
 
     def isInTimeRange(self, dateTime):
         if self.startTime <= dateTime < self.stopTime:
@@ -60,10 +50,11 @@ class LogAnalyzer():
         return False
 
     def main(self, line):
-        [ip, dateTime, timeZone, method, resource, http, code, trash] = search(self.pattern, line)
+        result = self.re.search(line)
+
+        [ip, dateTime, resource, code] = result.groups()
 
         dateTime = datetime.datetime.strptime(dateTime, self.dateTimePattern)
-        #pprint.pprint(resource)
         if self.startTime == 0:
             self.startTime = dateTime
             self.stopTime = self.startTime + datetime.timedelta(seconds=self.period)
@@ -80,20 +71,15 @@ class LogAnalyzer():
 
         #request type
 
-        resType = search(self.typePattern, resource)
-        if resType is None:
-            requestType = 'other'
-        else:
-            requestType = resType[0]
-            if not requestType in self.knownRequestTypes:
-                requestType = 'other'
+        if resource is None or resource not in self.knownRequestTypes:
+            resource = 'other'
 
-        self.nTypes[requestType] += 1
-        self.inc(ip, requestType)
+        self.nTypes[resource] += 1
+        self.inc(ip, resource)
 
         #status code
         if code in self.nCode:
-            self.nCode[code] +=1
+            self.nCode[code] += 1
         else:
             self.nCode[code] = 1
 
@@ -141,25 +127,29 @@ class LogAnalyzerMaster():
         self.logFileName = logFileName
         self.defaultPeriod = defaultPeriod
 
-        self.pattern = '{} - - [{} {}] "{} {} HTTP/1.{}" {} {}'
+        self.pattern = r'([0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}) - - \[([0-9][0-9]/[A-Z][a-z]{2}/[0-9]{4}:[0-9]' \
+                       r'[0-9]:[0-9][0-9]:[0-9][0-9]) \+0200] "[A-Z]{0,4} /([a-z\.?=]*).* HTTP/1.[01]" ([0-9]{3})'
+        self.re = re.compile(self.pattern)
+
         self.dateTimePattern = '%d/%b/%Y:%H:%M:%S'
 
         self.currentContainer = 0
-        self.containers = [LogAnalyzer(self.getStartDateTime(), self.defaultPeriod),]
+        self.containers = [LogAnalyzer(self.getStartDateTime(), self.defaultPeriod), ]
 
     def getStartDateTime(self):
         file = open(self.logFileName)
 
-        [ip, dateTime, timeZone, method, resource, http, code, trash] = search(self.pattern, file.readline())
+        result = self.re.search(file.readline())
+
+        [ip, dateTime, resource, code] = result.groups()
+
         dateTime = datetime.datetime.strptime(dateTime, self.dateTimePattern)
-        dateTime = dateTime.replace(minute=0,second=0)
+        dateTime = dateTime.replace(minute=0, second=0)
 
         file.close()
         return dateTime
 
     def readfile(self):
-        self.getStartDateTime()
-        runTimeStart = time.time()
         file = open(self.logFileName, 'r')
 
         for line in file:
@@ -168,23 +158,25 @@ class LogAnalyzerMaster():
                 self.containers.append(LogAnalyzer(startTime=stop, period=self.defaultPeriod))
                 self.currentContainer += 1
                 [nextWorker, stop] = self.containers[self.currentContainer].main(line)
-        runTimeStop = time.time()
-        print 'Run time', runTimeStop - runTimeStart, '\n'
 
     def printStats(self):
         for container in self.containers:
             container.stats()
 
+
 if __name__ == "__main__":
+    runTimeStart = time.time()
     if len(sys.argv) > 2:
         accessLogFileName = sys.argv[1]
         defaultPeriod = int(sys.argv[2])
     else:
-        accessLogFileName = 'nginx_access_log1'
+        accessLogFileName = 'nginx_access_log'
         defaultPeriod = 3600
     print 'File name:', accessLogFileName
     print 'Period:', defaultPeriod
 
     master = LogAnalyzerMaster(accessLogFileName, defaultPeriod)
     master.readfile()
-    #master.printStats()
+    master.printStats()
+    runTimeStop = time.time()
+    print 'Run time', runTimeStop - runTimeStart, '\n'
